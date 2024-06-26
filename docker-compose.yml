@@ -1,0 +1,93 @@
+version: "3.8"
+
+networks:
+  default:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DATABASE: POSTGRES_DATABASE
+      POSTGRES_USER: POSTGRES_USER
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: on-failure
+    ports:
+      - "5432:5432"
+    networks:
+      - default
+
+  redis:
+    image: redis:latest-alpine
+    restart: on-failure
+    environment:
+      REDIS_DATABASE: REDIS_DATABASE
+      REDIS_USER: REDIS_USER
+      REDIS_PASSWORD: REDIS_PASSWORD
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+    networks:
+      - default
+
+  nginx:
+    image: nginx:1.27.0-alpine
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/etc/nginx/certs
+    networks:
+      - default
+
+  bot:
+    container_name: telegram_bot
+    restart: always
+    build:
+      context: .
+      dockerfile: TelegramBot.dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_DATABASE: REDIS_DATABASE
+      REDIS_USER: REDIS_USER
+      REDIS_PASSWORD: REDIS_PASSWORD
+
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: POSTGRES_DATABASE
+      POSTGRES_USER: POSTGRES_USER
+      POSTGRES_PASSWORD: POSTGRES_PASSWORD
+
+      API_TOKEN_TG: API_TOKEN_TG
+    depends_on:
+      - postgres
+      - redis
+      - nginx
+    networks:
+      - default
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: FastApi.dockerfile
+    depends_on:
+      - bot
+    restart: always
+    networks:
+      - default
+
+  certbot:
+    image: certbot/certbot
+    restart: always
+    volumes:
+      - ./certs:/etc/letsencrypt
+    command: certonly --webroot --webroot-path=/etc/letsencrypt --email=EMAIL --agree-tos --no-eff-email --staging --force-renewal -d DOMAIN
+    networks:
+      - default
